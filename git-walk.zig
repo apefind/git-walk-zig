@@ -1,20 +1,22 @@
 const std = @import("std");
 
-fn isGitRepo(path: []const u8) !bool {
-    var dir = try std.fs.openDirAbsolute(path, .{ .iterate = true });
+fn isGitRepo(path: []const u8) bool {
+    var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
     defer dir.close();
 
-    var has_refs = false;
-    var has_hooks = false;
+    // .git may be a directory
+    if (dir.openDir(".git", .{}) catch null != null) return true;
 
-    var it = dir.iterate();
-    while (try it.next()) |e| {
-        if (std.mem.eql(u8, e.name, ".git")) return true;
-        if (std.mem.eql(u8, e.name, "refs")) has_refs = true;
-        if (std.mem.eql(u8, e.name, "hooks")) has_hooks = true;
-    }
+    // .git may be a file (worktrees)
+    if (dir.openFile(".git", .{}) catch null != null) return true;
 
-    return has_refs and has_hooks;
+    // Bare repository fallback: refs + HEAD
+    const hasRefs = dir.openDir("refs", .{}) catch null;
+    const hasHead = dir.openFile("HEAD", .{}) catch null;
+
+    if (hasRefs != null and hasHead != null) return true;
+
+    return false;
 }
 
 fn gitCmd(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
@@ -48,7 +50,7 @@ fn gitWalk(
         );
         defer allocator.free(child);
 
-        if (try isGitRepo(child)) {
+        if (isGitRepo(child)) {
             std.debug.print("{s}: {s}\n", .{ e.name, cmd });
 
             const result = try std.process.Child.run(.{
