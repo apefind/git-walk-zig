@@ -1,24 +1,23 @@
 const std = @import("std");
 
+/// Check if a directory is a Git repository.
+/// Works for both worktrees (.git dir or file) and bare repos (refs + HEAD)
 fn isGitRepo(path: []const u8) bool {
     var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
     defer dir.close();
 
-    // .git may be a directory
+    // Check for .git directory or file
     if (dir.openDir(".git", .{}) catch null != null) return true;
-
-    // .git may be a file (worktree/submodules)
     if (dir.openFile(".git", .{}) catch null != null) return true;
 
     // Bare repository fallback: refs + HEAD
     const hasRefs = dir.openDir("refs", .{}) catch null;
     const hasHead = dir.openFile("HEAD", .{}) catch null;
 
-    if (hasRefs != null and hasHead != null) return true;
-
-    return false;
+    return hasRefs != null and hasHead != null;
 }
 
+/// Recursively walk directories starting from `root`, executing the Git command in every repo
 fn gitWalk(
     allocator: std.mem.Allocator,
     root: []const u8,
@@ -35,8 +34,8 @@ fn gitWalk(
         defer allocator.free(child_path);
 
         if (isGitRepo(child_path)) {
+            // Print repo name and full git command
             std.debug.print("{s}: ", .{entry.name});
-            // print full git command
             std.debug.print("git", .{});
             for (args) |arg| {
                 std.debug.print(" {s}", .{arg});
@@ -47,10 +46,8 @@ fn gitWalk(
             var exec_args = try allocator.alloc([]const u8, args.len + 1);
             defer allocator.free(exec_args);
 
-            exec_args[0] = "git"; // assumes git is in PATH
-            for (args, 0..) |a, i| {
-                exec_args[i + 1] = a;
-            }
+            exec_args[0] = "git"; // assume git is on PATH
+            for (args, 0..) |a, i| exec_args[i + 1] = a;
 
             var child = std.process.Child.init(exec_args, allocator);
             child.cwd = child_path;
