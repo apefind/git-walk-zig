@@ -1,6 +1,6 @@
 const std = @import("std");
 
-fn isGitRepo(allocator: std.mem.Allocator, path: []const u8) !bool {
+fn isGitRepo(path: []const u8) !bool {
     var dir = try std.fs.openDirAbsolute(path, .{ .iterate = true });
     defer dir.close();
 
@@ -23,7 +23,7 @@ fn isGitRepo(allocator: std.mem.Allocator, path: []const u8) !bool {
     return has_refs and has_hooks;
 }
 
-fn gitCmd(allocator: std.mem.Allocator, args: [][]const u8) ![]u8 {
+fn gitCmd(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
 
@@ -54,7 +54,7 @@ fn gitWalk(
         );
         defer allocator.free(child_path);
 
-        if (try isGitRepo(allocator, child_path)) {
+        if (try isGitRepo(child_path)) {
             std.debug.print("{s}: {s}\n", .{ entry.name, cmd });
 
             var child_dir = try std.fs.openDirAbsolute(child_path, .{});
@@ -82,12 +82,20 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const raw_args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, raw_args);
 
-    if (args.len < 2) return;
+    if (raw_args.len < 2) return;
 
-    const cmd = try gitCmd(allocator, args[1..]);
+    // Convert [:0]u8 → []const u8
+    var args = try allocator.alloc([]const u8, raw_args.len - 1);
+    defer allocator.free(args);
+
+    for (raw_args[1..], 0..) |a, i| {
+        args[i] = std.mem.span(a);
+    }
+
+    const cmd = try gitCmd(allocator, args);
     defer allocator.free(cmd);
 
     const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
