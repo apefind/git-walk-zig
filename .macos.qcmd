@@ -1,0 +1,4 @@
+zig run git-walk.zig -- branch -v ␍
+zig run git-walk.zig -- remote -v ␍
+git commit -a && git push && git deploy
+zig build-exe git-walk.zig -O ReleaseFast -target native -dynamic && mv git-walk ~/u/work/bin
