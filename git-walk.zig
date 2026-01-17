@@ -4,10 +4,10 @@ fn isGitRepo(path: []const u8) bool {
     var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
     defer dir.close();
 
-    // .git may be a directory
+    // .git directory
     if (dir.openDir(".git", .{}) catch null != null) return true;
 
-    // .git may be a file (worktrees)
+    // .git file (worktrees/submodules)
     if (dir.openFile(".git", .{}) catch null != null) return true;
 
     // Bare repository fallback: refs + HEAD
@@ -19,59 +19,41 @@ fn isGitRepo(path: []const u8) bool {
     return false;
 }
 
-fn gitCmd(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
-    var list = try std.ArrayList(u8).initCapacity(allocator, 16);
-    defer list.deinit(allocator);
-
-    try list.appendSlice(allocator, "git");
-    for (args) |arg| {
-        try list.append(allocator, ' ');
-        try list.appendSlice(allocator, arg);
-    }
-
-    return list.toOwnedSlice(allocator);
-}
-
 fn gitWalk(
     allocator: std.mem.Allocator,
     root: []const u8,
-    cmd: []const u8,
+    args: [][]const u8,
 ) !void {
-    var dir = try std.fs.openDirAbsolute(root, .{ .iterate = true });
+    var dir = std.fs.openDirAbsolute(root, .{}) catch return;
     defer dir.close();
 
     var it = dir.iterate();
-    while (try it.next()) |e| {
-        if (e.kind != .directory) continue;
+    while (try it.next()) |entry| {
+        if (entry.kind != .directory) continue;
 
-        const child = try std.fs.path.join(
-            allocator,
-            &[_][]const u8{ root, e.name },
-        );
-        defer allocator.free(child);
+        const child_path = try std.fs.path.join(allocator, &[_][]const u8{ root, entry.name });
+        defer allocator.free(child_path);
 
-        if (isGitRepo(child)) {
-            std.debug.print("{s}: {s}\n", .{ e.name, cmd });
+        if (isGitRepo(child_path)) {
+            std.debug.print("{s}: git {s}\n", .{ entry.name, args[0] });
 
-            const result = try std.process.Child.run(.{
-                .allocator = allocator,
-                .argv = &[_][]const u8{ "sh", "-c", cmd },
-                .cwd = child,
-            });
-            defer {
-                allocator.free(result.stdout);
-                allocator.free(result.stderr);
-            }
+            // Run git command
+            var child = std.process.Child.init(args, allocator);
+            child.cwd = child_path;
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Inherit; // print stdout immediately
+            child.stderr_behavior = .Inherit; // print stderr immediately
 
-            if (result.term != .Exited or result.term.Exited != 0) {
-                std.process.exit(
-                    if (result.term == .Exited) result.term.Exited else 1,
-                );
+            try child.spawn();
+            const term = try child.wait();
+
+            if (term != .Exited or term.Exited != 0) {
+                std.process.exit(if (term == .Exited) term.Exited else 1);
             }
 
             std.debug.print("\n", .{});
         } else {
-            try gitWalk(allocator, child, cmd);
+            try gitWalk(allocator, child_path, args);
         }
     }
 }
@@ -81,23 +63,19 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const raw = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, raw);
+    const raw_args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, raw_args);
 
-    if (raw.len < 2) return;
-
-    var args = try allocator.alloc([]const u8, raw.len - 1);
-    defer allocator.free(args);
-
-    for (raw[1..], 0..) |a, i| {
-        args[i] = std.mem.sliceTo(a, 0);
+    if (raw_args.len < 2) {
+        std.debug.print("Usage: git-walk <git-args>\n", .{});
+        return;
     }
 
-    const cmd = try gitCmd(allocator, args);
-    defer allocator.free(cmd);
+    // Slice arguments after program name
+    var args: [][]const u8 = raw_args[1..];
 
     const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd);
 
-    try gitWalk(allocator, cwd, cmd);
+    try gitWalk(allocator, cwd, args);
 }
