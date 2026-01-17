@@ -8,32 +8,26 @@ fn isGitRepo(path: []const u8) !bool {
     var has_hooks = false;
 
     var it = dir.iterate();
-    while (try it.next()) |entry| {
-        if (std.mem.eql(u8, entry.name, ".git")) {
-            return true;
-        }
-        if (std.mem.eql(u8, entry.name, "refs")) {
-            has_refs = true;
-        }
-        if (std.mem.eql(u8, entry.name, "hooks")) {
-            has_hooks = true;
-        }
+    while (try it.next()) |e| {
+        if (std.mem.eql(u8, e.name, ".git")) return true;
+        if (std.mem.eql(u8, e.name, "refs")) has_refs = true;
+        if (std.mem.eql(u8, e.name, "hooks")) has_hooks = true;
     }
 
     return has_refs and has_hooks;
 }
 
 fn gitCmd(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
-    var list = std.ArrayList(u8).init(allocator);
-    errdefer list.deinit();
+    var list = try std.ArrayList(u8).initCapacity(allocator, 16);
+    defer list.deinit(allocator);
 
-    try list.appendSlice("git");
+    try list.appendSlice(allocator, "git");
     for (args) |arg| {
-        try list.append(' ');
-        try list.appendSlice(arg);
+        try list.append(allocator, ' ');
+        try list.appendSlice(allocator, arg);
     }
 
-    return list.toOwnedSlice();
+    return list.toOwnedSlice(allocator);
 }
 
 fn gitWalk(
@@ -45,34 +39,37 @@ fn gitWalk(
     defer dir.close();
 
     var it = dir.iterate();
-    while (try it.next()) |entry| {
-        if (entry.kind != .directory) continue;
+    while (try it.next()) |e| {
+        if (e.kind != .directory) continue;
 
-        const child_path = try std.fs.path.join(
+        const child = try std.fs.path.join(
             allocator,
-            &[_][]const u8{ root, entry.name },
+            &[_][]const u8{ root, e.name },
         );
-        defer allocator.free(child_path);
+        defer allocator.free(child);
 
-        if (try isGitRepo(child_path)) {
-            std.debug.print("{s}: {s}\n", .{ entry.name, cmd });
+        if (try isGitRepo(child)) {
+            std.debug.print("{s}: {s}\n", .{ e.name, cmd });
 
-            var child_dir = try std.fs.openDirAbsolute(child_path, .{});
-            defer child_dir.close();
-
-            const result = try std.ChildProcess.exec(.{
+            const result = try std.process.Child.run(.{
                 .allocator = allocator,
                 .argv = &[_][]const u8{ "sh", "-c", cmd },
-                .cwd_dir = child_dir,
+                .cwd = child,
             });
+            defer {
+                allocator.free(result.stdout);
+                allocator.free(result.stderr);
+            }
 
-            if (result.term.Exited != 0) {
-                std.process.exit(result.term.Exited);
+            if (result.term != .Exited or result.term.Exited != 0) {
+                std.process.exit(
+                    if (result.term == .Exited) result.term.Exited else 1,
+                );
             }
 
             std.debug.print("\n", .{});
         } else {
-            try gitWalk(allocator, child_path, cmd);
+            try gitWalk(allocator, child, cmd);
         }
     }
 }
@@ -82,17 +79,16 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const raw_args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, raw_args);
+    const raw = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, raw);
 
-    if (raw_args.len < 2) return;
+    if (raw.len < 2) return;
 
-    // Convert [:0]u8 → []const u8
-    var args = try allocator.alloc([]const u8, raw_args.len - 1);
+    var args = try allocator.alloc([]const u8, raw.len - 1);
     defer allocator.free(args);
 
-    for (raw_args[1..], 0..) |a, i| {
-        args[i] = std.mem.span(a);
+    for (raw[1..], 0..) |a, i| {
+        args[i] = std.mem.sliceTo(a, 0);
     }
 
     const cmd = try gitCmd(allocator, args);
