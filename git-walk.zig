@@ -35,7 +35,13 @@ fn gitWalk(
         defer allocator.free(child_path);
 
         if (isGitRepo(child_path)) {
-            std.debug.print("{s}: git {s}\n", .{ entry.name, args[0] });
+            std.debug.print("{s}: ", .{entry.name});
+            // print full git command
+            std.debug.print("git", .{});
+            for (args) |arg| {
+                std.debug.print(" {s}", .{arg});
+            }
+            std.debug.print("\n", .{});
 
             // Build argv: ["git", ...args]
             var exec_args = try allocator.alloc([]const u8, args.len + 1);
