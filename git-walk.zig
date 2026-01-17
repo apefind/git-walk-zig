@@ -4,10 +4,10 @@ fn isGitRepo(path: []const u8) bool {
     var dir = std.fs.openDirAbsolute(path, .{}) catch return false;
     defer dir.close();
 
-    // .git directory
+    // .git may be a directory
     if (dir.openDir(".git", .{}) catch null != null) return true;
 
-    // .git file (worktrees/submodules)
+    // .git may be a file (worktree/submodules)
     if (dir.openFile(".git", .{}) catch null != null) return true;
 
     // Bare repository fallback: refs + HEAD
@@ -37,8 +37,16 @@ fn gitWalk(
         if (isGitRepo(child_path)) {
             std.debug.print("{s}: git {s}\n", .{ entry.name, args[0] });
 
-            // Run git command
-            var child = std.process.Child.init(args, allocator);
+            // Build argv: ["git", ...args]
+            var exec_args = try allocator.alloc([]const u8, args.len + 1);
+            defer allocator.free(exec_args);
+
+            exec_args[0] = "git"; // assumes git is in PATH
+            for (args, 0..) |a, i| {
+                exec_args[i + 1] = a;
+            }
+
+            var child = std.process.Child.init(exec_args, allocator);
             child.cwd = child_path;
             child.stdin_behavior = .Ignore;
             child.stdout_behavior = .Inherit; // print stdout immediately
@@ -71,8 +79,14 @@ pub fn main() !void {
         return;
     }
 
-    // Slice arguments after program name
-    var args: [][]const u8 = raw_args[1..];
+    const arg_count = raw_args.len - 1;
+    var args = try allocator.alloc([]const u8, arg_count);
+    defer allocator.free(args);
+
+    // Copy arguments
+    for (raw_args[1..], 0..) |a, i| {
+        args[i] = a;
+    }
 
     const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd);
