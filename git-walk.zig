@@ -131,3 +131,25 @@ pub fn main() !void {
 
     try gitWalk(allocator, cwd, args);
 }
+
+// child.stdout_behavior = .Pipe;
+// child.stderr_behavior = .Inherit;
+
+// try child.spawn();
+
+// var stdout = child.stdout.?.reader();
+// var buf: [4096]u8 = undefined;
+
+// while (true) {
+//     const maybe_line = try stdout.readUntilDelimiterOrEof(&buf, '\n');
+//     if (maybe_line == null) break;
+
+//     const line = maybe_line.?;
+//     std.debug.print("{s}\n", .{line});
+// }
+
+// const term = try child.wait();
+
+// if (term != .Exited or term.Exited != 0) {
+//     std.process.exit(if (term == .Exited) term.Exited else 1);
+// }
