@@ -23,19 +23,54 @@ fn gitWalk(
     root: []const u8,
     args: [][]const u8,
 ) !void {
+    if (isGitRepo(root)) {
+        const name = std.fs.path.basename(root);
+
+        std.debug.print("{s}: git", .{name});
+        for (args) |arg| std.debug.print(" {s}", .{arg});
+        std.debug.print("\n", .{});
+
+        var exec_args = try allocator.alloc([]const u8, args.len + 1);
+        defer allocator.free(exec_args);
+
+        exec_args[0] = "git";
+        for (args, 0..) |a, i| exec_args[i + 1] = a;
+
+        var child = std.process.Child.init(exec_args, allocator);
+        child.cwd = root;
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
+
+        try child.spawn();
+        const term = try child.wait();
+
+        if (term != .Exited or term.Exited != 0) {
+            std.process.exit(if (term == .Exited) term.Exited else 1);
+        }
+
+        std.debug.print("\n", .{});
+        // IMPORTANT: do not recurse into subdirs of a repo unless you want nested repos
+        return;
+    }
+
     var dir = std.fs.openDirAbsolute(root, .{}) catch return;
     defer dir.close();
 
     var it = dir.iterate();
     while (try it.next()) |entry| {
-        if (entry.kind != .directory) continue;
+        if (entry.kind != .directory)
+            continue;
+        if (std.mem.eql(u8, entry.name, ".git"))
+            continue;
 
         const child_path = try std.fs.path.join(allocator, &[_][]const u8{ root, entry.name });
         defer allocator.free(child_path);
 
         if (isGitRepo(child_path)) {
             // Print repo name and full git command
-            std.debug.print("{s}: ", .{entry.name});
+            const repo_name = std.fs.path.basename(child_path);
+            std.debug.print("{s}: ", .{repo_name});
             std.debug.print("git", .{});
             for (args) |arg| {
                 std.debug.print(" {s}", .{arg});

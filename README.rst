@@ -1,6 +1,5 @@
 git-walk
-********
-
+========
 `git-walk` is a small Zig utility that recursively walks a directory tree and
 executes a given `git` command in every Git repository it finds.
 
@@ -14,8 +13,7 @@ This is useful for running the same Git command across many repositories, such
 as checking status, pulling changes, or inspecting branches.
 
 Features
-========
-
+--------
 * Recursively scans directories starting from the current working directory
 * Automatically detects Git repositories
 * Executes arbitrary Git commands
@@ -23,13 +21,13 @@ Features
 * Exits immediately on the first non-zero Git exit code
 
 Usage
-=====
+-----
 Invoke `git-walk` followed by any arguments you would normally pass to `git`::
 
     git-walk <git-args>
 
 Examples
-========
+--------
 ::
 
     git-walk status
@@ -52,10 +50,7 @@ Example output::
 
 Building
 --------
-
-This project requires Zig.
-
-Build the executable::
+This project requires Zig. Build the executable::
 
     zig build-exe git-walk.zig
 
@@ -65,7 +60,6 @@ Or run it directly::
 
 Notes
 -----
-
 - ``git`` must be available on your ``PATH``
 - The directory walk starts at the current working directory
 - If a Git command exits with a non-zero status, ``git-walk`` exits with the same
